@@ -33,16 +33,16 @@ contract IncentiveHook is BaseHook, ERC20 {
     {
         return
             Hooks.Permissions({
-                beforeInitialize: true,
-                afterInitialize: true,
-                beforeAddLiquidity: true,
-                beforeRemoveLiquidity: true,
+                beforeInitialize: false,
+                afterInitialize: false,
+                beforeAddLiquidity: false,
+                beforeRemoveLiquidity: false,
                 afterAddLiquidity: true,
-                afterRemoveLiquidity: true,
-                beforeSwap: true,
+                afterRemoveLiquidity: false,
+                beforeSwap: false,
                 afterSwap: true,
-                beforeDonate: true,
-                afterDonate: true
+                beforeDonate: false,
+                afterDonate: false
             });
     }
 
