@@ -13,18 +13,19 @@ import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 
 import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
+
+import "forge-std/console.sol";
 
 struct Values {
-    uint256 period;
     uint256 amount;
+    uint256 period;
 }
 
 contract IncentiveHook is BaseHook {
     using CurrencyLibrary for Currency;
-
+ 
     using BalanceDeltaLibrary for BalanceDelta;
-
-    mapping(Currency => mapping(Currency => mapping(ERC20 => Values))) public rewards;
 
     constructor(
         IPoolManager _manager,
@@ -64,11 +65,12 @@ contract IncentiveHook is BaseHook {
 
     function afterInitialize(
         address,
-        PoolKey calldata,
+        PoolKey calldata poolKey,
         uint160,
         int24,
         bytes calldata
-    ) external pure override returns (bytes4) {
+    ) external override returns (bytes4) {
+        poolKeys[poolKey.toId()] = poolKey;
         return this.afterInitialize.selector;
     }
 
@@ -92,11 +94,12 @@ contract IncentiveHook is BaseHook {
 
     function afterAddLiquidity(
         address,
-        PoolKey calldata,
+        PoolKey calldata poolKey,
         IPoolManager.ModifyLiquidityParams calldata,
         BalanceDelta,
         bytes calldata
-    ) external pure override returns (bytes4) {
+    ) external override returns (bytes4) {
+        userPools[msg.sender].push(poolKey.toId());
         return this.afterAddLiquidity.selector;
     }
 
@@ -149,59 +152,42 @@ contract IncentiveHook is BaseHook {
         return this.afterDonate.selector;
     }
 
-    /// @notice Updates the amount of ERC20 rewards allocated to a given pair and distribution period.
-    /// @dev The rewards are allocated to all the pools of the given pair that have this hook attached.
-    /// @param currency0 The lower currency of the pair.
-    /// @param currency1 The higher currency of the pair.
-    /// @param rewardToken The ERC20 token to allocate as rewards. 
-    /// @param newAmount The amount of ERC20 rewards to allocate.
-    /// @param period The distribution period in blocks.
+    ////////////////////////////////
+    using PoolIdLibrary for PoolKey;
+
+    mapping(PoolId => PoolKey) public poolKeys;
+
+    mapping(PoolId => mapping(ERC20 => Values)) public rewards;
+
+    mapping(address => PoolId[]) public userPools;
+
     function updateRewards(
-        Currency currency0,
-        Currency currency1,
+        PoolId poolId,
         ERC20 rewardToken,
         uint256 newAmount,
         uint256 period
     ) external {
-        // sets the amount of rewardToken allocated to the pair regardless of the direction
-        rewards[currency0][currency1][rewardToken] = Values(newAmount, period);
-        rewards[currency1][currency0][rewardToken] = Values(newAmount, period);
-
-        // settles the amount of rewardToken between the caller and this contract
+        // TODO check that the pool has this hook attached
+        // require(address(poolKeys[poolId].hooks) == address(this), "Hook not attached to pool");
         
-        // calculates the balance difference for this hook contract
-        uint256 currentBalance = rewardToken.balanceOf(address(this));
+        uint256 currentBalance = rewards[poolId][rewardToken].amount;
+
         if (currentBalance < newAmount) {
-            // Need more tokens to allocate the reward properly
             uint256 needed = newAmount - currentBalance;
-            // check allowance and transfer the needed amount
             require(rewardToken.allowance(msg.sender, address(this)) >= needed, "Insufficient allowance");
             rewardToken.transferFrom(msg.sender, address(this), needed);
         } else if (currentBalance > newAmount) {
-            // Excess tokens can be returned to the caller
             uint256 excess = currentBalance - newAmount;
             rewardToken.transfer(msg.sender, excess);
         }
+
+        rewards[poolId][rewardToken] = Values(newAmount, period);
     }
 
-    // Public function to manually access values in the nested mapping
-    function getRewards(Currency from, Currency to, ERC20 token) public view returns (uint256, uint256) {
-        // Access the nested mapping structure
-        Values storage value = rewards[from][to][token];
-        return (value.period, value.amount);
-    }
-
-    /// @notice Withdraws the ERC20 rewards allocated to the caller.
-    /// @param tokens ERC20 tokens to withdraw 
-    /// @param amounts amounts corresponding to the tokens to withdraw
-    function withdrawRewards(ERC20[] memory tokens, uint256[] memory amounts) external {
-    }
-
-    /// @notice Returns the amount of ERC20 rewards allocated to an address.
-    /// @param token The ERC20 token to query.
-    /// @param account The address to query.
-    /// @return The amount of ERC20 rewards allocated to the address.
-    function getRewards(ERC20 token, address account) external view returns (uint256) {
-        
+    function getRewards(
+        PoolId poolId,
+        ERC20 rewardToken
+    ) external view returns (uint256, uint256) {
+        return (rewards[poolId][rewardToken].amount, rewards[poolId][rewardToken].period);
     }
 }

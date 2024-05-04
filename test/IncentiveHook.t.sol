@@ -10,6 +10,9 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 import {PoolManager} from "v4-core/PoolManager.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 
@@ -21,6 +24,8 @@ import {HookMiner} from "./utils/HookMiner.sol";
 
 contract TestIncentiveHook is Test, Deployers {
     using CurrencyLibrary for Currency;
+
+    using PoolIdLibrary for PoolKey;
 
     MockERC20 token0;
 
@@ -114,29 +119,44 @@ contract TestIncentiveHook is Test, Deployers {
         );
     }
 
+    // TODO
+    // function test_updateRewards_wrongHookAddress() public {
+    //     PoolKey memory wrongHook = PoolKey({
+    //         currency0: key.currency0,
+    //         currency1: key.currency1,
+    //         fee: key.fee,
+    //         tickSpacing: key.tickSpacing,
+    //         hooks: IHooks(address(123))
+    //     });
+
+    //     try
+    //         hook.updateRewards(wrongHook.toId(), rewardToken, 100 ether, 500)
+    //     {
+    //         fail();
+    //     } catch Error(string memory reason) {
+    //         assertEq(reason, "Hook not attached to pool");
+    //     }
+    // }
+
     function test_updateRewards_shouldHaveUpdatedRecords() public {
         // increase allowance of rewardToken to hook
         rewardToken.approve(address(hook), type(uint256).max);
 
         // pick currency0, currency1, and rewardToken
         // update rewards to 100 ether for 500 blocks
-        hook.updateRewards(tokenCurrency0, tokenCurrency1, rewardToken, 100 ether, 500);
+        hook.updateRewards(key.toId(), rewardToken, 100 ether, 500);
 
-        // check rewards record for this pair in both directions
-        (uint256 amount1, uint256 period1) = hook.getRewards(tokenCurrency0, tokenCurrency1, rewardToken);
-        assertEq(amount1, 100 ether);
-        assertEq(period1, 500);
-
-        (uint256 amount2, uint256 period2) = hook.getRewards(tokenCurrency1, tokenCurrency0, rewardToken);
-        assertEq(amount2, 100 ether);
-        assertEq(period2, 500);
+        // check rewards record for this pool
+        (uint256 amount, uint256 period) = hook.getRewards(key.toId(), rewardToken);
+        assertEq(amount, 100 ether);
+        assertEq(period, 500);
     }
 
     function test_updateRewards_shouldHaveUpdatedBalances() public {
         // increase allowance of rewardToken to hook
         rewardToken.approve(address(hook), type(uint256).max);
 
-        hook.updateRewards(tokenCurrency0, tokenCurrency1, rewardToken, 100 ether, 500);
+        hook.updateRewards(key.toId(), rewardToken, 100 ether, 500);
 
         // check this contract balance of rewardToken
         uint256 balance = rewardToken.balanceOf(address(this));
@@ -150,12 +170,12 @@ contract TestIncentiveHook is Test, Deployers {
     function test_updateRewards_decreaseAmount() public {
         rewardToken.approve(address(hook), type(uint256).max);
 
-        hook.updateRewards(tokenCurrency0, tokenCurrency1, rewardToken, 300 ether, 500);
-        hook.updateRewards(tokenCurrency0, tokenCurrency1, rewardToken, 200 ether, 500);
+        hook.updateRewards(key.toId(), rewardToken, 300 ether, 500);
+        hook.updateRewards(key.toId(), rewardToken, 200 ether, 500);
 
-        (uint256 amount1, uint256 period1) = hook.getRewards(tokenCurrency0, tokenCurrency1, rewardToken);
-        assertEq(amount1, 200 ether);
-        assertEq(period1, 500);
+        (uint256 amount, uint256 period) = hook.getRewards(key.toId(), rewardToken);
+        assertEq(amount, 200 ether);
+        assertEq(period, 500);
 
         // check caller's balance of rewardToken
         uint256 balance = rewardToken.balanceOf(address(this));
@@ -169,19 +189,15 @@ contract TestIncentiveHook is Test, Deployers {
     function test_updateRewards_withdrawAllRewards() public {
         rewardToken.approve(address(hook), type(uint256).max);
 
-        hook.updateRewards(tokenCurrency0, tokenCurrency1, rewardToken, 100 ether, 500);
+        hook.updateRewards(key.toId(), rewardToken, 100 ether, 500);
 
         // withdraw all rewards
-        hook.updateRewards(tokenCurrency0, tokenCurrency1, rewardToken, 0, 0);
+        hook.updateRewards(key.toId(), rewardToken, 0, 0);
 
         // check rewards record for this pair in both directions
-        (uint256 amount1, uint256 period1) = hook.getRewards(tokenCurrency0, tokenCurrency1, rewardToken);
-        assertEq(amount1, 0);
-        assertEq(period1, 0);
-
-        (uint256 amount2, uint256 period2) = hook.getRewards(tokenCurrency1, tokenCurrency0, rewardToken);
-        assertEq(amount2, 0);
-        assertEq(period2, 0);
+        (uint256 amount, uint256 period) = hook.getRewards(key.toId(), rewardToken);
+        assertEq(amount, 0);
+        assertEq(period, 0);
 
         // check caller's balance of rewardToken
         uint256 balance = rewardToken.balanceOf(address(this));
@@ -191,28 +207,4 @@ contract TestIncentiveHook is Test, Deployers {
         uint256 hookBalance = rewardToken.balanceOf(address(hook));
         assertEq(hookBalance, 0);
     }
-
-	function test_distribution() public {
-		// add rewards
-		hook.updateRewards(ethCurrency, tokenCurrency0, rewardToken, 100 ether, 100);
-
-		// add liquidity
-        modifyLiquidityRouter.modifyLiquidity{value: 0.003 ether}(
-            key,
-            IPoolManager.ModifyLiquidityParams({
-                tickLower: -60,
-                tickUpper: 60,
-                liquidityDelta: 1 ether
-            }),
-			ZERO_BYTES
-        );
-
-		// wait for a block
-        vm.roll(2);
-        console.log("Block number: %d", block.number);
-
-		// check rewards of this account
-        uint256 rewards = hook.getRewards(rewardToken, address(this));
-        assertEq(rewards, 1 ether);
-	}
 }
