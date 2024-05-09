@@ -190,4 +190,13 @@ contract IncentiveHook is BaseHook {
     ) external view returns (uint256, uint256) {
         return (rewards[poolId][rewardToken].amount, rewards[poolId][rewardToken].period);
     }
+
+    function calculateRewards(
+        address user,
+        PoolId poolId,
+        ERC20 rewardToken
+    ) external view returns (uint256) {
+        
+        
+    }
 }
