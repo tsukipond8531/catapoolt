@@ -53,24 +53,49 @@ contract FeeValues is Test, Deployers {
 
     PoolManager mngr;
 
+    address alice;
+
+    address bob;
+
+    address carol;
+
     function setUp() public {
         deployFreshManagerAndRouters();
 
         mngr = PoolManager(address(manager));
 
+        uint256 rootBalance = ethCurrency.balanceOf(address(this)) / 1 ether;
+        console.log("rootBalance: %d", rootBalance);
+
+        alice = vm.addr(1);
+        bob = vm.addr(2);
+        carol = vm.addr(3);
+
+        vm.deal(alice, 100 ether);
+        vm.deal(bob, 100 ether);
+        vm.deal(carol, 100 ether);
+
         token0 = new MockERC20("Test Token 1", "TST1", 18);
         tokenCurrency0 = Currency.wrap(address(token0));
-        token0.mint(address(this), 1000 ether);
-        token0.mint(address(1), 1000 ether);
+        token0.mint(address(this), 10000 ether);
+        token0.mint(address(1), 10000 ether);
+
+        token0.transfer(alice, 2000 ether);
+        token0.transfer(bob, 2000 ether);
+        token0.transfer(carol, 2000 ether);
 
         token1 = new MockERC20("Test Token 2", "TST2", 18);
         tokenCurrency1 = Currency.wrap(address(token1));
-        token1.mint(address(this), 1000 ether);
-        token1.mint(address(1), 1000 ether);
+        token1.mint(address(this), 10000 ether);
+        token1.mint(address(1), 10000 ether);
+
+        token1.transfer(alice, 2000 ether);
+        token1.transfer(bob, 2000 ether);
+        token1.transfer(carol, 2000 ether);
 
 		rewardToken = new MockERC20("Reward Token", "REW", 18);
 		rewardCurrency = Currency.wrap(address(rewardToken));
-		rewardToken.mint(address(this), 1000 ether);
+		rewardToken.mint(address(this), 10000 ether);
 
         uint160 flags = uint160(
             Hooks.AFTER_ADD_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG
@@ -95,8 +120,8 @@ contract FeeValues is Test, Deployers {
         token1.approve(address(modifyLiquidityRouter), type(uint256).max);
 
         (key, ) = initPool(
-            ethCurrency,
             tokenCurrency0,
+            tokenCurrency1,
             hook,
             3000,
             SQRT_RATIO_1_1,
@@ -148,7 +173,7 @@ contract FeeValues is Test, Deployers {
         console.log("address(this)", address(this));
 
         console.log("INIT");
-        // log_currentTck(key);
+        log_currentTck(key);
 
         modifyLiquidityRouter.modifyLiquidity{value: 0.003 ether}(
             key,
@@ -160,7 +185,7 @@ contract FeeValues is Test, Deployers {
 			ZERO_BYTES
         );
         console.log("AFTER ADD LIQUIDITY");
-        // log_currentTck(key);
+        log_currentTck(key);
 
         swapRouter.swap{value: 0.001 ether}(
             key,
@@ -174,37 +199,14 @@ contract FeeValues is Test, Deployers {
         );
 
         console.log("AFTER SWAP");
-        // log_currentTck(key);
+        log_currentTck(key);
         
-        swapRouter.swap{value: 0.001 ether}(
-            key,
-            IPoolManager.SwapParams({
-                zeroForOne: true,
-                amountSpecified: -0.001 ether,
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
-            }),
-            PoolSwapTest.TestSettings({takeClaims: true, settleUsingBurn: false}),
-			ZERO_BYTES
-        );
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, true, true);
+
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, -1 ether), ZERO_BYTES, true, true);
 
         console.log("AFTER SWAP");
-        // log_currentTck(key);
-
-        swapRouter.swap{value: 0.001 ether}(
-            key,
-            IPoolManager.SwapParams({
-                zeroForOne: false,
-                amountSpecified: 0.001 ether,
-                sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
-            }),
-            PoolSwapTest.TestSettings({takeClaims: true, settleUsingBurn: false}),
-			ZERO_BYTES
-        );
-        
-        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0), ZERO_BYTES);
-
-        console.log("AFTER SWAP");
-        // log_currentTck(key);
+        log_currentTck(key);
 
         // log_liquidity(key, address(this), -60, 60);
         log_feeGrowthGlobals(key);
@@ -214,5 +216,67 @@ contract FeeValues is Test, Deployers {
         console.logInt(delta);
     }
 
-    
+
+    function test_exploration_feeDistribution() public {
+        // Alice adds liquidity
+        vm.prank(alice);
+        token0.approve(address(modifyLiquidityRouter), type(uint256).max);
+        token1.approve(address(modifyLiquidityRouter), type(uint256).max);
+
+        modifyLiquidityRouter.modifyLiquidity(
+            key,
+            IPoolManager.ModifyLiquidityParams({
+                tickLower: -60,
+                tickUpper: 60,
+                liquidityDelta: 1000 ether
+            }),
+            ZERO_BYTES);
+
+        // Bob adds liquidity
+        vm.prank(bob);
+        token0.approve(address(modifyLiquidityRouter), type(uint256).max);
+        token1.approve(address(modifyLiquidityRouter), type(uint256).max);
+
+        modifyLiquidityRouter.modifyLiquidity(
+            key,
+            IPoolManager.ModifyLiquidityParams({
+                tickLower: -60,
+                tickUpper: 60,
+                liquidityDelta: 1000 ether
+            }),
+            ZERO_BYTES);
+
+        // Swap
+        vm.prank(address(this));
+        swapRouter.swap(
+            key,
+            IPoolManager.SwapParams({
+                zeroForOne: true,
+                amountSpecified: 0.1 ether,
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: true, settleUsingBurn: false}),
+			ZERO_BYTES
+        );
+
+        // Alice log
+        vm.prank(alice);
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, true, true);
+
+        console.log("\nAlice log");
+        log_feeGrowthInside(key, alice, -60, 60);
+
+        // Bob log
+        vm.prank(bob);
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, true, true);
+
+        console.log("\nBob log");
+        log_feeGrowthInside(key, alice, -60, 60);
+
+        // General log
+        vm.prank(address(this));
+
+        console.log("\nGeneral log");
+        log_feeGrowthGlobals(key);
+    }
 }
