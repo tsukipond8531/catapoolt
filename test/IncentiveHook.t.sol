@@ -111,9 +111,11 @@ contract TestIncentiveHook is Test, Deployers {
                 sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
             PoolSwapTest.TestSettings({
-                withdrawTokens: true,
-                settleUsingTransfer: true,
-                currencyAlreadySent: false
+                // withdrawTokens: true,
+                // settleUsingTransfer: true,
+                // currencyAlreadySent: false
+                settleUsingBurn: false,
+                takeClaims: false
             }),
 			ZERO_BYTES
         );

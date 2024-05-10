@@ -17,6 +17,7 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Pool} from "v4-core/libraries/Pool.sol";
 import {Position} from "v4-core/libraries/Position.sol";
+import {PoolStateLibrary} from "v4-core/libraries/PoolStateLibrary.sol";
 
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 
@@ -50,8 +51,12 @@ contract FeeValues is Test, Deployers {
 
     IncentiveHook hook;
 
+    PoolManager mngr;
+
     function setUp() public {
         deployFreshManagerAndRouters();
+
+        mngr = PoolManager(address(manager));
 
         token0 = new MockERC20("Test Token 1", "TST1", 18);
         tokenCurrency0 = Currency.wrap(address(token0));
@@ -100,38 +105,42 @@ contract FeeValues is Test, Deployers {
     }
 
     function log_feeGrowthGlobals(PoolKey memory _key) internal {
-        (, uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128, ) = manager.pools(_key.toId());
+        (, uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128, ) = mngr.pools(_key.toId());
         console.log("feeGrowthGlobal0X128: %d", feeGrowthGlobal0X128);
         console.log("feeGrowthGlobal1X128: %d", feeGrowthGlobal1X128);
     }
 
     function log_feeGrowthInside(PoolKey memory _key, address _owner, int24 tickLower, int24 tickUpper) internal {
-        Position.Info memory position = manager.getPosition(_key.toId(), address(this), tickLower, tickUpper);
-        console.log("feeGrowthInside0LastX128: %d", position.feeGrowthInside0LastX128);
-        console.log("feeGrowthInside1LastX128: %d", position.feeGrowthInside1LastX128);
-        console.log("liquidity inside: %d", position.liquidity);
+        bytes32 positionId = keccak256(abi.encodePacked(address(modifyLiquidityRouter), int24(tickLower), int24(tickUpper)));
+
+        (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = PoolStateLibrary.getPositionInfo(manager, _key.toId(), positionId);
+        console.log("feeGrowthInside0LastX128: %d", feeGrowthInside0LastX128);
+        console.log("feeGrowthInside1LastX128: %d", feeGrowthInside1LastX128);
+        console.log("liquidity inside: %d", liquidity);
     }
 
     function log_Slot0(PoolKey memory _key) internal {
-        (uint160 sqrtPriceX96, int24 tick, uint16 protocolFee, uint24 swapFee) = manager.getSlot0(_key.toId());
+        (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee) = PoolStateLibrary.getSlot0(manager, _key.toId());
         console.log("sqrtPriceX96: %d", uint(sqrtPriceX96));
         console.logInt(tick);
         console.log("protocolFee: %d", protocolFee);
-        console.log("swapFee: %d", swapFee);
+        console.log("lpFee: %d", lpFee);
     }
 
     function log_liquidity(PoolKey memory _key, address _owner, int24 tickLower, int24 tickUpper) internal {
-        Position.Info memory position = manager.getPosition(_key.toId(), _owner, tickLower, tickUpper);
-        console.log("liquidity owner: %d", position.liquidity);
+        bytes32 positionId = keccak256(abi.encodePacked(address(modifyLiquidityRouter), int24(tickLower), int24(tickUpper)));
+
+        (uint128 liquidity, , ) = PoolStateLibrary.getPositionInfo(manager, _key.toId(), positionId);
+        console.log("liquidity owner: %d", liquidity);
     }
 
     function log_liquidity(PoolKey memory _key) internal {
-        uint128 liquidity = manager.getLiquidity(_key.toId());
-        console.log("liquidity: %d", liquidity);
+        uint128 liquidity = PoolStateLibrary.getLiquidity(manager, _key.toId());
+        console.log("Pool liquidity: %d", liquidity);
     }
 
     function log_currentTck(PoolKey memory _key) internal {
-        (, int24 tick, , ) = manager.getSlot0(_key.toId());
+        (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee) = PoolStateLibrary.getSlot0(manager, _key.toId());
         console.logInt(tick);
     }
 
@@ -139,7 +148,7 @@ contract FeeValues is Test, Deployers {
         console.log("address(this)", address(this));
 
         console.log("INIT");
-        log_currentTck(key);
+        // log_currentTck(key);
 
         modifyLiquidityRouter.modifyLiquidity{value: 0.003 ether}(
             key,
@@ -151,7 +160,7 @@ contract FeeValues is Test, Deployers {
 			ZERO_BYTES
         );
         console.log("AFTER ADD LIQUIDITY");
-        log_currentTck(key);
+        // log_currentTck(key);
 
         swapRouter.swap{value: 0.001 ether}(
             key,
@@ -160,16 +169,12 @@ contract FeeValues is Test, Deployers {
                 amountSpecified: -0.001 ether,
                 sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
-            PoolSwapTest.TestSettings({
-                withdrawTokens: true,
-                settleUsingTransfer: true,
-                currencyAlreadySent: false
-            }),
+            PoolSwapTest.TestSettings({takeClaims: true, settleUsingBurn: false}),
 			ZERO_BYTES
         );
 
         console.log("AFTER SWAP");
-        log_currentTck(key);
+        // log_currentTck(key);
         
         swapRouter.swap{value: 0.001 ether}(
             key,
@@ -178,16 +183,12 @@ contract FeeValues is Test, Deployers {
                 amountSpecified: -0.001 ether,
                 sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
             }),
-            PoolSwapTest.TestSettings({
-                withdrawTokens: true,
-                settleUsingTransfer: true,
-                currencyAlreadySent: false
-            }),
+            PoolSwapTest.TestSettings({takeClaims: true, settleUsingBurn: false}),
 			ZERO_BYTES
         );
 
         console.log("AFTER SWAP");
-        log_currentTck(key);
+        // log_currentTck(key);
 
         swapRouter.swap{value: 0.001 ether}(
             key,
@@ -196,18 +197,16 @@ contract FeeValues is Test, Deployers {
                 amountSpecified: 0.001 ether,
                 sqrtPriceLimitX96: TickMath.MAX_SQRT_RATIO - 1
             }),
-            PoolSwapTest.TestSettings({
-                withdrawTokens: true,
-                settleUsingTransfer: true,
-                currencyAlreadySent: false
-            }),
+            PoolSwapTest.TestSettings({takeClaims: true, settleUsingBurn: false}),
 			ZERO_BYTES
         );
+        
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0), ZERO_BYTES);
 
         console.log("AFTER SWAP");
-        log_currentTck(key);
+        // log_currentTck(key);
 
-        log_liquidity(key, address(this), -60, 60);
+        // log_liquidity(key, address(this), -60, 60);
         log_feeGrowthGlobals(key);
         log_feeGrowthInside(key, address(this), -60, 60);
 
@@ -215,5 +214,5 @@ contract FeeValues is Test, Deployers {
         console.logInt(delta);
     }
 
-
+    
 }
