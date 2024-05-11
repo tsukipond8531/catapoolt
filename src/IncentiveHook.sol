@@ -14,13 +14,9 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {FullMath} from "v4-core/libraries/FullMath.sol";
 
 import "forge-std/console.sol";
-
-struct Values {
-    uint256 amount;
-    uint256 period;
-}
 
 contract IncentiveHook is BaseHook {
     using CurrencyLibrary for Currency;
@@ -161,6 +157,11 @@ contract IncentiveHook is BaseHook {
 
     mapping(address => PoolId[]) public userPools;
 
+    struct Values {
+        uint256 amount;
+        uint256 period;
+    }
+
     function updateRewards(
         PoolId poolId,
         ERC20 rewardToken,
@@ -195,8 +196,37 @@ contract IncentiveHook is BaseHook {
         address user,
         PoolId poolId,
         ERC20 rewardToken
-    ) external view returns (uint256) {
-        
-        
+    ) external view returns (uint256 userRewards) {
+        // fees accrued by the user since the last reward withdrawal
+        uint256 feesAccruedUser = getFeesAccrued(user, poolId, rewardToken);
+
+        // fees accrued by all the users since the last reward withdrawal
+        uint256 feesAccruedTotal = 1;
+
+        // amount of total rewards since the last withdrawal of the user (nr of blocks * reward per block)
+        uint256 blocksPassed = 1;
+        uint256 rewardPerBlock = 1;
+        uint256 totalRewards = blocksPassed * rewardPerBlock;
+
+        // amount of rewards the user can claim
+        userRewards = FullMath.mulDiv(feesAccruedUser, totalRewards, feesAccruedTotal);
+
+        // update variables
+        feesAccruedUser = 1;
+        feesAccruedTotal = 1;
+        blocksPassed = 1;
+    }
+
+    function getFeesAccrued(
+        address user,
+        PoolId poolId,
+        ERC20 rewardToken
+    ) public view returns (uint256) {
+        // bytes32 positionId = keccak256(abi.encodePacked(address(user), int24(tickLower), int24(tickUpper)));
+
+        // (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = PoolStateLibrary.getPositionInfo(manager, _key.toId(), positionId);
+
+
+        return 0;
     }
 }

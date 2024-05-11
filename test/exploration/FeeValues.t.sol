@@ -65,11 +65,16 @@ contract FeeValues is Test, Deployers {
         mngr = PoolManager(address(manager));
 
         uint256 rootBalance = ethCurrency.balanceOf(address(this)) / 1 ether;
-        console.log("rootBalance: %d", rootBalance);
+        console.log("address(this) \t\t", address(this));
 
         alice = vm.addr(1);
+        console.log("alice \t\t", alice);
         bob = vm.addr(2);
+        console.log("bob \t\t", bob);
         carol = vm.addr(3);
+        console.log("carol \t\t", carol);
+
+        console.log("router address \t\t", address(modifyLiquidityRouter));
 
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
@@ -153,7 +158,7 @@ contract FeeValues is Test, Deployers {
     }
 
     function log_liquidity(PoolKey memory _key, address _owner, int24 tickLower, int24 tickUpper) internal {
-        bytes32 positionId = keccak256(abi.encodePacked(address(modifyLiquidityRouter), int24(tickLower), int24(tickUpper)));
+        bytes32 positionId = keccak256(abi.encodePacked(address(_owner), int24(tickLower), int24(tickUpper)));
 
         (uint128 liquidity, , ) = PoolStateLibrary.getPositionInfo(manager, _key.toId(), positionId);
         console.log("liquidity owner: %d", liquidity);
@@ -220,6 +225,8 @@ contract FeeValues is Test, Deployers {
     function test_exploration_feeDistribution() public {
         // Alice adds liquidity
         vm.prank(alice);
+        console.log("alice msg.sender", msg.sender);
+
         token0.approve(address(modifyLiquidityRouter), type(uint256).max);
         token1.approve(address(modifyLiquidityRouter), type(uint256).max);
 
@@ -242,7 +249,7 @@ contract FeeValues is Test, Deployers {
             IPoolManager.ModifyLiquidityParams({
                 tickLower: -60,
                 tickUpper: 60,
-                liquidityDelta: 1000 ether
+                liquidityDelta: 500 ether
             }),
             ZERO_BYTES);
 
@@ -261,12 +268,12 @@ contract FeeValues is Test, Deployers {
 
         // Alice log
         vm.prank(alice);
-        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, true, true);
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, false, false);
 
         console.log("\nAlice log");
         log_feeGrowthInside(key, alice, -60, 60);
 
-        // Bob log
+        // // Bob log
         vm.prank(bob);
         modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, true, true);
 
@@ -278,5 +285,28 @@ contract FeeValues is Test, Deployers {
 
         console.log("\nGeneral log");
         log_feeGrowthGlobals(key);
+    }
+
+    function test_inCircles() public {
+        // Alice -> Bob
+        vm.prank(alice);
+        tokenCurrency0.transfer(bob, 100 ether);
+        console.log("\nAlice", tokenCurrency0.balanceOf(alice));
+        console.log("Bob", tokenCurrency0.balanceOf(bob));
+        console.log("Carol", tokenCurrency0.balanceOf(carol));
+
+        // Bob -> Carol
+        vm.prank(bob);
+        tokenCurrency0.transfer(carol, 100 ether);
+        console.log("\nAlice", tokenCurrency0.balanceOf(alice));
+        console.log("Bob", tokenCurrency0.balanceOf(bob));
+        console.log("Carol", tokenCurrency0.balanceOf(carol));
+
+        // Carol -> Alice
+        vm.prank(carol);
+        tokenCurrency0.transfer(alice, 100 ether);
+        console.log("\nAlice", tokenCurrency0.balanceOf(alice));
+        console.log("Bob", tokenCurrency0.balanceOf(bob));
+        console.log("Carol", tokenCurrency0.balanceOf(carol));
     }
 }

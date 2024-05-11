@@ -43,8 +43,14 @@ contract TestIncentiveHook is Test, Deployers {
 
     IncentiveHook hook;
 
+    PoolManager mngr;
+
+    PoolKey poolKey2;
+
     function setUp() public {
         deployFreshManagerAndRouters();
+
+        mngr = PoolManager(address(manager));
 
         token0 = new MockERC20("Test Token 1", "TST1", 18);
         tokenCurrency0 = Currency.wrap(address(token0));
@@ -85,6 +91,15 @@ contract TestIncentiveHook is Test, Deployers {
         (key, ) = initPool(
             ethCurrency,
             tokenCurrency0,
+            hook,
+            3000,
+            SQRT_RATIO_1_1,
+            ZERO_BYTES
+        );
+
+        (poolKey2, ) = initPool(
+            tokenCurrency0,
+            tokenCurrency1,
             hook,
             3000,
             SQRT_RATIO_1_1,
@@ -209,4 +224,71 @@ contract TestIncentiveHook is Test, Deployers {
         uint256 hookBalance = rewardToken.balanceOf(address(hook));
         assertEq(hookBalance, 0);
     }
+
+    ///////////////
+    //// UTILS ///
+    //////////////
+
+    function log_feeGrowthGlobals(PoolKey memory _key) internal {
+        (, uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128, ) = mngr.pools(_key.toId());
+        console.log("feeGrowthGlobal0X128: %d", feeGrowthGlobal0X128);
+        console.log("feeGrowthGlobal1X128: %d", feeGrowthGlobal1X128);
+    }
+
+    ///////////////
+    //// TESTS ///
+    //////////////
+
+    function test_feesAccruedUser_NoPosition() public {}
+
+    function test_feesAccruedUser_1Position_NoWithdraws_NoPositionChanges_NoFees() public {
+        // few blocks passed after pool init
+        vm.roll(10);
+
+        // add liquidity
+        modifyLiquidityRouter.modifyLiquidity(poolKey2, IPoolManager.ModifyLiquidityParams({
+            tickLower: -60,
+            tickUpper: 60,
+            liquidityDelta: 1 ether
+        }), ZERO_BYTES);
+
+        // get fees accrued by user
+        uint256 feesAccruedUser = hook.getFeesAccrued(address(this), poolKey2.toId(), rewardToken);
+        assertEq(feesAccruedUser, 0);
+    }
+
+    function test_feesAccruedUser_1Position_NoWithdraws_NoPositionChanges_SomeFees() public {
+        // few blocks passed after pool init
+        vm.roll(10);
+
+        // add liquidity
+        modifyLiquidityRouter.modifyLiquidity(poolKey2, IPoolManager.ModifyLiquidityParams({
+            tickLower: -60,
+            tickUpper: 60,
+            liquidityDelta: 1 ether
+        }), ZERO_BYTES);
+
+        // swap generating fees
+        swapRouter.swap(poolKey2, IPoolManager.SwapParams({
+            zeroForOne: true,
+            amountSpecified: -0.1 ether,
+            sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+        }), PoolSwapTest.TestSettings({
+            settleUsingBurn: false,
+            takeClaims: false
+        }), ZERO_BYTES);
+
+        log_feeGrowthGlobals(poolKey2);
+
+        // get fees accrued by user
+        uint256 feesAccruedUser = hook.getFeesAccrued(address(this), poolKey2.toId(), rewardToken);
+        assertNotEq(feesAccruedUser, 0);
+    }
+
+    function test_feesAccruedUser_1Position_OneWithdraw_NoPositionChanges() public {}
+
+    function test_feesAccruedUser_1Position_NoWithdraw_OnePositionChange() public {}
+
+    function test_feesAccruedUser_1Position_OneWithdraw_OnePositionChange() public {}
+
 }
