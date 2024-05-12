@@ -7,6 +7,7 @@ import "forge-std/console.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
 
 import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
+import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
@@ -17,7 +18,6 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Pool} from "v4-core/libraries/Pool.sol";
 import {Position} from "v4-core/libraries/Position.sol";
-import {PoolStateLibrary} from "v4-core/libraries/PoolStateLibrary.sol";
 
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 
@@ -129,7 +129,7 @@ contract FeeValues is Test, Deployers {
             tokenCurrency1,
             hook,
             3000,
-            SQRT_RATIO_1_1,
+            Constants.SQRT_PRICE_1_1,
             ZERO_BYTES
         );
     }
@@ -141,16 +141,14 @@ contract FeeValues is Test, Deployers {
     }
 
     function log_feeGrowthInside(PoolKey memory _key, address _owner, int24 tickLower, int24 tickUpper) internal {
-        bytes32 positionId = keccak256(abi.encodePacked(address(modifyLiquidityRouter), int24(tickLower), int24(tickUpper)));
-
-        (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = PoolStateLibrary.getPositionInfo(manager, _key.toId(), positionId);
-        console.log("feeGrowthInside0LastX128: %d", feeGrowthInside0LastX128);
-        console.log("feeGrowthInside1LastX128: %d", feeGrowthInside1LastX128);
-        console.log("liquidity inside: %d", liquidity);
+        Position.Info memory position = manager.getPosition(_key.toId(), _owner, tickLower, tickUpper, 0);
+        console.log("feeGrowthInside0LastX128: %d", position.feeGrowthInside0LastX128);
+        console.log("feeGrowthInside1LastX128: %d", position.feeGrowthInside1LastX128);
+        console.log("liquidity inside: %d", position.liquidity);
     }
 
     function log_Slot0(PoolKey memory _key) internal {
-        (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee) = PoolStateLibrary.getSlot0(manager, _key.toId());
+        (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee) = manager.getSlot0(_key.toId());
         console.log("sqrtPriceX96: %d", uint(sqrtPriceX96));
         console.logInt(tick);
         console.log("protocolFee: %d", protocolFee);
@@ -158,19 +156,17 @@ contract FeeValues is Test, Deployers {
     }
 
     function log_liquidity(PoolKey memory _key, address _owner, int24 tickLower, int24 tickUpper) internal {
-        bytes32 positionId = keccak256(abi.encodePacked(address(_owner), int24(tickLower), int24(tickUpper)));
-
-        (uint128 liquidity, , ) = PoolStateLibrary.getPositionInfo(manager, _key.toId(), positionId);
-        console.log("liquidity owner: %d", liquidity);
+        Position.Info memory position = manager.getPosition(_key.toId(), _owner, tickLower, tickUpper, 0);
+        console.log("liquidity owner: %d", position.liquidity);
     }
 
     function log_liquidity(PoolKey memory _key) internal {
-        uint128 liquidity = PoolStateLibrary.getLiquidity(manager, _key.toId());
+        uint128 liquidity = manager.getLiquidity(_key.toId());
         console.log("Pool liquidity: %d", liquidity);
     }
 
     function log_currentTck(PoolKey memory _key) internal {
-        (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee) = PoolStateLibrary.getSlot0(manager, _key.toId());
+        (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee) = manager.getSlot0(_key.toId());
         console.logInt(tick);
     }
 
@@ -185,7 +181,8 @@ contract FeeValues is Test, Deployers {
             IPoolManager.ModifyLiquidityParams({
                 tickLower: -60,
                 tickUpper: 60,
-                liquidityDelta: 1 ether
+                liquidityDelta: 1 ether,
+                salt: 0
             }),
 			ZERO_BYTES
         );
@@ -197,7 +194,7 @@ contract FeeValues is Test, Deployers {
             IPoolManager.SwapParams({
                 zeroForOne: true,
                 amountSpecified: -0.001 ether,
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({takeClaims: true, settleUsingBurn: false}),
 			ZERO_BYTES
@@ -206,9 +203,9 @@ contract FeeValues is Test, Deployers {
         console.log("AFTER SWAP");
         log_currentTck(key);
         
-        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, true, true);
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether, 0), ZERO_BYTES, true, true);
 
-        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, -1 ether), ZERO_BYTES, true, true);
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, -1 ether, 0), ZERO_BYTES, true, true);
 
         console.log("AFTER SWAP");
         log_currentTck(key);
@@ -235,7 +232,8 @@ contract FeeValues is Test, Deployers {
             IPoolManager.ModifyLiquidityParams({
                 tickLower: -60,
                 tickUpper: 60,
-                liquidityDelta: 1000 ether
+                liquidityDelta: 1000 ether,
+                salt: 0
             }),
             ZERO_BYTES);
 
@@ -249,7 +247,8 @@ contract FeeValues is Test, Deployers {
             IPoolManager.ModifyLiquidityParams({
                 tickLower: -60,
                 tickUpper: 60,
-                liquidityDelta: 500 ether
+                liquidityDelta: 500 ether,
+                salt: 0
             }),
             ZERO_BYTES);
 
@@ -260,7 +259,7 @@ contract FeeValues is Test, Deployers {
             IPoolManager.SwapParams({
                 zeroForOne: true,
                 amountSpecified: 0.1 ether,
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({takeClaims: true, settleUsingBurn: false}),
 			ZERO_BYTES
@@ -268,14 +267,14 @@ contract FeeValues is Test, Deployers {
 
         // Alice log
         vm.prank(alice);
-        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, false, false);
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether, 0), ZERO_BYTES, false, false);
 
         console.log("\nAlice log");
         log_feeGrowthInside(key, alice, -60, 60);
 
         // // Bob log
         vm.prank(bob);
-        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether), ZERO_BYTES, true, true);
+        modifyLiquidityRouter.modifyLiquidity(key, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether, 0), ZERO_BYTES, true, true);
 
         console.log("\nBob log");
         log_feeGrowthInside(key, alice, -60, 60);

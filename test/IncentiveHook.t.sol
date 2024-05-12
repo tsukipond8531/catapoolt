@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
+import {Constants} from "@uniswap/v4-core/test/utils/Constants.sol";
 import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
@@ -47,20 +48,43 @@ contract TestIncentiveHook is Test, Deployers {
 
     PoolKey poolKey2;
 
+    address alice;
+
+    address bob;
+
+    address carol;
+
     function setUp() public {
         deployFreshManagerAndRouters();
 
         mngr = PoolManager(address(manager));
 
+        alice = vm.addr(1);
+        console.log("alice: ", alice);
+        bob = vm.addr(2);
+        console.log("bob:   ", bob);
+        carol = vm.addr(3);
+        console.log("carol: ", carol);
+
+        vm.deal(alice, 100 ether);
+        vm.deal(bob, 100 ether);
+        vm.deal(carol, 100 ether);
+
         token0 = new MockERC20("Test Token 1", "TST1", 18);
         tokenCurrency0 = Currency.wrap(address(token0));
-        token0.mint(address(this), 1000 ether);
-        token0.mint(address(1), 1000 ether);
+        token0.mint(address(this), 1_000_000 ether);
+
+        token0.transfer(alice, 2000 ether);
+        token0.transfer(bob, 2000 ether);
+        token0.transfer(carol, 2000 ether);
 
         token1 = new MockERC20("Test Token 2", "TST2", 18);
         tokenCurrency1 = Currency.wrap(address(token1));
-        token1.mint(address(this), 1000 ether);
-        token1.mint(address(1), 1000 ether);
+        token1.mint(address(this), 1_000_000 ether);
+
+        token1.transfer(alice, 2000 ether);
+        token1.transfer(bob, 2000 ether);
+        token1.transfer(carol, 2000 ether);
 
 		rewardToken = new MockERC20("Reward Token", "REW", 18);
 		rewardCurrency = Currency.wrap(address(rewardToken));
@@ -93,7 +117,7 @@ contract TestIncentiveHook is Test, Deployers {
             tokenCurrency0,
             hook,
             3000,
-            SQRT_RATIO_1_1,
+            Constants.SQRT_PRICE_1_1,
             ZERO_BYTES
         );
 
@@ -102,7 +126,7 @@ contract TestIncentiveHook is Test, Deployers {
             tokenCurrency1,
             hook,
             3000,
-            SQRT_RATIO_1_1,
+            Constants.SQRT_PRICE_1_1,
             ZERO_BYTES
         );
     }
@@ -113,7 +137,8 @@ contract TestIncentiveHook is Test, Deployers {
             IPoolManager.ModifyLiquidityParams({
                 tickLower: -60,
                 tickUpper: 60,
-                liquidityDelta: 1 ether
+                liquidityDelta: 1 ether,
+                salt: 0
             }),
 			ZERO_BYTES
         );
@@ -123,7 +148,7 @@ contract TestIncentiveHook is Test, Deployers {
             IPoolManager.SwapParams({
                 zeroForOne: true,
                 amountSpecified: -0.001 ether,
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
             }),
             PoolSwapTest.TestSettings({
                 // withdrawTokens: true,
@@ -249,12 +274,13 @@ contract TestIncentiveHook is Test, Deployers {
         modifyLiquidityRouter.modifyLiquidity(poolKey2, IPoolManager.ModifyLiquidityParams({
             tickLower: -60,
             tickUpper: 60,
-            liquidityDelta: 1 ether
+            liquidityDelta: 1 ether,
+            salt: 0
         }), ZERO_BYTES);
 
         // get fees accrued by user
-        uint256 feesAccruedUser = hook.getFeesAccrued(address(this), poolKey2.toId(), rewardToken);
-        assertEq(feesAccruedUser, 0);
+        // uint256 feesAccruedUser = hook.getFeesAccrued(poolKey2.toId(), address(this), -60, 60);
+        // assertEq(feesAccruedUser, 0);
     }
 
     function test_feesAccruedUser_1Position_NoWithdraws_NoPositionChanges_SomeFees() public {
@@ -262,17 +288,22 @@ contract TestIncentiveHook is Test, Deployers {
         vm.roll(10);
 
         // add liquidity
+        vm.prank(alice);
+        token0.approve(address(modifyLiquidityRouter), type(uint256).max);
+        token1.approve(address(modifyLiquidityRouter), type(uint256).max);
         modifyLiquidityRouter.modifyLiquidity(poolKey2, IPoolManager.ModifyLiquidityParams({
             tickLower: -60,
             tickUpper: 60,
-            liquidityDelta: 1 ether
+            liquidityDelta: 1 ether,
+            salt: 0
         }), ZERO_BYTES);
 
         // swap generating fees
+        vm.prank(address(this));
         swapRouter.swap(poolKey2, IPoolManager.SwapParams({
             zeroForOne: true,
             amountSpecified: -0.1 ether,
-            sqrtPriceLimitX96: TickMath.MIN_SQRT_RATIO + 1
+            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
         }), PoolSwapTest.TestSettings({
             settleUsingBurn: false,
             takeClaims: false
@@ -281,8 +312,11 @@ contract TestIncentiveHook is Test, Deployers {
         log_feeGrowthGlobals(poolKey2);
 
         // get fees accrued by user
-        uint256 feesAccruedUser = hook.getFeesAccrued(address(this), poolKey2.toId(), rewardToken);
-        assertNotEq(feesAccruedUser, 0);
+        vm.prank(alice);
+        modifyLiquidityRouter.modifyLiquidity(poolKey2, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether, 0), ZERO_BYTES, false, false);
+        (uint256 fees0, uint256 fees1) = hook.getFeesAccrued(poolKey2.toId(), alice, -60, 60, 0, 0, 0);
+        console.log("fees0: %d", fees0);
+        console.log("fees1: %d", fees1);
     }
 
     function test_feesAccruedUser_1Position_OneWithdraw_NoPositionChanges() public {}

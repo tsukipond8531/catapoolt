@@ -14,7 +14,10 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {Position} from "v4-core/libraries/Position.sol";
 import {FullMath} from "v4-core/libraries/FullMath.sol";
+
+import {FixedPoint128} from "v4-core/libraries/FixedPoint128.sol";
 
 import "forge-std/console.sol";
 
@@ -46,7 +49,11 @@ contract IncentiveHook is BaseHook {
                 beforeSwap: false,
                 afterSwap: true,
                 beforeDonate: false,
-                afterDonate: false
+                afterDonate: false,
+                beforeSwapReturnDelta: false,
+                afterSwapReturnDelta: false,
+                afterAddLiquidityReturnDelta: false,
+                afterRemoveLiquidityReturnDelta: false
             });
     }
 
@@ -92,21 +99,21 @@ contract IncentiveHook is BaseHook {
         address,
         PoolKey calldata poolKey,
         IPoolManager.ModifyLiquidityParams calldata,
-        BalanceDelta,
+        BalanceDelta delta,
         bytes calldata
-    ) external override returns (bytes4) {
+    ) external override returns (bytes4, BalanceDelta) {
         userPools[msg.sender].push(poolKey.toId());
-        return this.afterAddLiquidity.selector;
+        return (this.afterAddLiquidity.selector, delta);
     }
 
     function afterRemoveLiquidity(
         address,
         PoolKey calldata,
         IPoolManager.ModifyLiquidityParams calldata,
-        BalanceDelta,
+        BalanceDelta delta,
         bytes calldata
-    ) external pure override returns (bytes4) {
-        return this.afterRemoveLiquidity.selector;
+    ) external pure override returns (bytes4, BalanceDelta) {
+        return (this.afterRemoveLiquidity.selector, delta);
     }
 
     function beforeSwap(
@@ -114,8 +121,8 @@ contract IncentiveHook is BaseHook {
         PoolKey calldata,
         IPoolManager.SwapParams calldata,
         bytes calldata
-    ) external pure override returns (bytes4) {
-        return this.beforeSwap.selector;
+    ) external pure override returns (bytes4, int128) {
+        return (this.beforeSwap.selector, 0);
     }
 
     function afterSwap(
@@ -124,8 +131,8 @@ contract IncentiveHook is BaseHook {
         IPoolManager.SwapParams calldata,
         BalanceDelta,
         bytes calldata
-    ) external pure override returns (bytes4) {
-        return this.afterSwap.selector;
+    ) external pure override returns (bytes4, int128) {
+        return (this.afterSwap.selector, 0);
     }
 
     function beforeDonate(
@@ -193,12 +200,20 @@ contract IncentiveHook is BaseHook {
     }
 
     function calculateRewards(
-        address user,
         PoolId poolId,
+        address owner,
+        int24 tickLower, 
+        int24 tickUpper,
+        bytes32 salt,
         ERC20 rewardToken
     ) external view returns (uint256 userRewards) {
+        // TODO
+        uint256 feeGrowthInside0X128LastWithdrawal = 0;
+        // TODO
+        uint256 feeGrowthInside1X128LastWithdrawal = 0;
+
         // fees accrued by the user since the last reward withdrawal
-        uint256 feesAccruedUser = getFeesAccrued(user, poolId, rewardToken);
+        (uint256 fees0, uint256 fees1) = getFeesAccrued(poolId, owner, tickLower, tickUpper, salt, feeGrowthInside0X128LastWithdrawal, feeGrowthInside1X128LastWithdrawal);
 
         // fees accrued by all the users since the last reward withdrawal
         uint256 feesAccruedTotal = 1;
@@ -209,24 +224,28 @@ contract IncentiveHook is BaseHook {
         uint256 totalRewards = blocksPassed * rewardPerBlock;
 
         // amount of rewards the user can claim
-        userRewards = FullMath.mulDiv(feesAccruedUser, totalRewards, feesAccruedTotal);
+        // userRewards = FullMath.mulDiv(feesAccruedUser, totalRewards, feesAccruedTotal);
 
         // update variables
-        feesAccruedUser = 1;
+        // feesAccruedUser = 1;
         feesAccruedTotal = 1;
         blocksPassed = 1;
     }
 
     function getFeesAccrued(
-        address user,
         PoolId poolId,
-        ERC20 rewardToken
-    ) public view returns (uint256) {
-        // bytes32 positionId = keccak256(abi.encodePacked(address(user), int24(tickLower), int24(tickUpper)));
+        address owner,
+        int24 tickLower, 
+        int24 tickUpper,
+        bytes32 salt,
+        uint256 feeGrowthInside0X128LastWithdrawal,
+        uint256 feeGrowthInside1X128LastWithdrawal
+    ) public view returns (uint256 fees0, uint256 fees1) {
+        Position.Info memory position = poolManager.getPosition(poolId, owner, tickLower, tickUpper, 0);
 
-        // (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = PoolStateLibrary.getPositionInfo(manager, _key.toId(), positionId);
-
-
-        return 0;
+        unchecked {
+            fees0 = FullMath.mulDiv(position.feeGrowthInside0LastX128 - feeGrowthInside0X128LastWithdrawal, position.liquidity, FixedPoint128.Q128);
+            fees1 = FullMath.mulDiv(position.feeGrowthInside1LastX128 - feeGrowthInside1X128LastWithdrawal, position.liquidity, FixedPoint128.Q128);
+        }
     }
 }
