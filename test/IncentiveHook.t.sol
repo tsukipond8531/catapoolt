@@ -205,8 +205,6 @@ contract TestIncentiveHook is Test, Deployers {
         // few blocks passed after pool init
         vm.roll(10);
 
-        console.log("<<< add liquidity");
-
         // add liquidity
         modifyLiquidityRouter.modifyLiquidity(poolKey, IPoolManager.ModifyLiquidityParams({
             tickLower: -60,
@@ -215,9 +213,6 @@ contract TestIncentiveHook is Test, Deployers {
             salt: 0
         }), ZERO_BYTES);
 
-        console.log(">>>");
-
-        console.log("<<< swap");
         // swap generating fees
         swapRouter.swap(poolKey, IPoolManager.SwapParams({
             zeroForOne: true,
@@ -227,14 +222,9 @@ contract TestIncentiveHook is Test, Deployers {
             settleUsingBurn: false,
             takeClaims: false
         }), ZERO_BYTES);
-        console.log(">>>");
 
-        log_feeGrowthGlobals(poolKey);
-
-        console.log("<<< poke liquidity");
         // get fees accrued by user
         modifyLiquidityRouter.modifyLiquidity(poolKey, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether, 0), ZERO_BYTES, false, false);
-        console.log(">>>");
 
         (uint256 fees0, uint256 fees1) = hook.getFeesAccrued(poolId, address(modifyLiquidityRouter), -60, 60, 0, 0, 0);
         console.log("fees0: %d", fees0);
@@ -243,6 +233,8 @@ contract TestIncentiveHook is Test, Deployers {
         (uint256 feesGlobal0, uint256 feesGlobal1) = hook.getFeesAccruedGlobal(poolId, 0, 0);
         console.log("feesGlobal0: %d", feesGlobal0);
         console.log("feesGlobal1: %d", feesGlobal1);
+
+        hook.calculateRewards(poolId, address(modifyLiquidityRouter), -60, 60, 0, rewardToken);
     }
 
     function test_feesAccruedUser_1Position_OneWithdraw_NoPositionChanges() public {}

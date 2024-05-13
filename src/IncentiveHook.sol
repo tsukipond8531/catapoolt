@@ -167,6 +167,14 @@ contract IncentiveHook is BaseHook {
         uint256 period;
     }
 
+    struct WithdrawalSnapshot {
+        uint256 feeGrowthInside0X128;
+        uint256 feeGrowthInside1X128;
+        uint256 feesGrowthGlobal0X128;
+        uint256 feesGrowthGlobal1X128;
+        uint256 blockNumber;
+    }
+
     function updateRewards(
         PoolId poolId,
         ERC20 rewardToken,
@@ -197,6 +205,12 @@ contract IncentiveHook is BaseHook {
         return (rewards[poolId][rewardToken].amount, rewards[poolId][rewardToken].period);
     }
 
+    function toPositionId(PoolId poolId, address owner, int24 tickLower, int24 tickUpper, bytes32 salt) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(poolId, owner, tickLower, tickUpper, salt));
+    }
+
+    mapping(bytes32 => WithdrawalSnapshot) public lastWithdrawals;
+
     function calculateRewards(
         PoolId poolId,
         address owner,
@@ -204,30 +218,24 @@ contract IncentiveHook is BaseHook {
         int24 tickUpper,
         bytes32 salt,
         ERC20 rewardToken
-    ) external view returns (uint256 userRewards) {
-        // TODO
-        uint256 feeGrowthInside0X128LastWithdrawal = 0;
-        // TODO
-        uint256 feeGrowthInside1X128LastWithdrawal = 0;
-        // TODO 
-        uint256 feesGrowthGlobal0X128LastWithdrawal = 0;
-        // TODO
-        uint256 feesGrowthGlobal1X128LastWithdrawal = 0;
-
+    ) external view returns (uint256 rewards0, uint256 rewards1) {
+        WithdrawalSnapshot memory lastWithdrawal = lastWithdrawals[toPositionId(poolId, owner, tickLower, tickUpper, salt)];
+        
         // fees accrued by the user since the last reward withdrawal
-        (uint256 fees0, uint256 fees1) = getFeesAccrued(poolId, owner, tickLower, tickUpper, salt, feeGrowthInside0X128LastWithdrawal, feeGrowthInside1X128LastWithdrawal);
+        (uint256 fees0, uint256 fees1) = getFeesAccrued(poolId, owner, tickLower, tickUpper, salt, lastWithdrawal.feeGrowthInside0X128, lastWithdrawal.feeGrowthInside1X128);
 
         // fees accrued by all the users since the last reward withdrawal
-        (uint256 feesGlobal0, uint256 feesGlobal1) = getFeesAccruedGlobal(poolId, feesGrowthGlobal0X128LastWithdrawal, feesGrowthGlobal1X128LastWithdrawal);
+        (uint256 feesGlobal0, uint256 feesGlobal1) = getFeesAccruedGlobal(poolId, lastWithdrawal.feesGrowthGlobal0X128, lastWithdrawal.feesGrowthGlobal1X128);
 
 
         // amount of total rewards since the last withdrawal of the user (nr of blocks * reward per block)
         uint256 blocksPassed = 1;
-        uint256 rewardPerBlock = 1;
+        uint256 rewardPerBlock = 1 ether;
         uint256 totalRewards = blocksPassed * rewardPerBlock;
 
         // amount of rewards the user can claim
-        // userRewards = FullMath.mulDiv(feesAccruedUser, totalRewards, feesAccruedTotal);
+        rewards0 = (feesGlobal0 == 0) ? 0 : FullMath.mulDiv(fees0, totalRewards, feesGlobal0);
+        rewards1 = (feesGlobal1 == 0) ? 0 : FullMath.mulDiv(fees1, totalRewards, feesGlobal1);
 
         // update variables
         // feesAccruedUser = 1;
@@ -247,8 +255,8 @@ contract IncentiveHook is BaseHook {
         Position.Info memory position = poolManager.getPosition(poolId, owner, tickLower, tickUpper, 0);
 
         unchecked {
-            fees0 = FullMath.mulDiv(position.feeGrowthInside0LastX128 - feeGrowthInside0X128LastWithdrawal, position.liquidity, FixedPoint128.Q128);
-            fees1 = FullMath.mulDiv(position.feeGrowthInside1LastX128 - feeGrowthInside1X128LastWithdrawal, position.liquidity, FixedPoint128.Q128);
+            fees0 = position.feeGrowthInside0LastX128 - feeGrowthInside0X128LastWithdrawal;
+            fees1 = position.feeGrowthInside1LastX128 - feeGrowthInside1X128LastWithdrawal;
         }
     }
 
@@ -258,14 +266,10 @@ contract IncentiveHook is BaseHook {
         uint256 feesGrowthGlobal1X128LastWithdrawal
     ) public view returns (uint256 feesGlobal0, uint256 feesGlobal1) {
         (uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128) = poolManager.getFeeGrowthGlobals(poolId);
-        console.log("Hook: feeGrowthGlobal0X128: %d", feeGrowthGlobal0X128);
-        console.log("Hook: feeGrowthGlobal1X128: %d", feeGrowthGlobal1X128);
-        uint128 liquidity = poolManager.getLiquidity(poolId);
-        console.log("Hook: liquidity: %d", liquidity);
 
         unchecked {
-            feesGlobal0 = FullMath.mulDiv(feeGrowthGlobal0X128 - feesGrowthGlobal0X128LastWithdrawal, liquidity, FixedPoint128.Q128);
-            feesGlobal1 = FullMath.mulDiv(feeGrowthGlobal1X128 - feesGrowthGlobal1X128LastWithdrawal, liquidity, FixedPoint128.Q128);
+            feesGlobal0 = feeGrowthGlobal0X128 - feesGrowthGlobal0X128LastWithdrawal;
+            feesGlobal1 = feeGrowthGlobal1X128 - feesGrowthGlobal1X128LastWithdrawal;
         }
     }
 }
