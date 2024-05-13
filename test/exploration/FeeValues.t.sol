@@ -110,13 +110,11 @@ contract FeeValues is Test, Deployers {
             flags,
             0,
             type(IncentiveHook).creationCode,
-            abi.encode(manager, "Points Token", "TEST_POINTS")
+            abi.encode(manager)
         );
 
         hook = new IncentiveHook{salt: salt}(
-            manager,
-            "Points Token",
-            "TEST_POINTS"
+            manager
         );
 
         token0.approve(address(swapRouter), type(uint256).max);

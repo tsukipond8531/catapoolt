@@ -34,8 +34,6 @@ contract TestIncentiveHook is Test, Deployers {
 
 	MockERC20 rewardToken;
 
-    Currency ethCurrency = Currency.wrap(address(0));
-
     Currency tokenCurrency0;
 
     Currency tokenCurrency1;
@@ -46,49 +44,31 @@ contract TestIncentiveHook is Test, Deployers {
 
     PoolManager mngr;
 
-    PoolKey poolKey2;
+    PoolKey poolKey;
 
-    address alice;
-
-    address bob;
-
-    address carol;
+    PoolId poolId;
 
     function setUp() public {
         deployFreshManagerAndRouters();
 
+        console.log("This test              address: %s", address(this));
+        console.log("Manager                address: %s", address(manager));
+        console.log("SwapRouter             address: %s", address(swapRouter));
+        console.log("ModifyLiquidityRouter  address: %s", address(modifyLiquidityRouter));
+
         mngr = PoolManager(address(manager));
-
-        alice = vm.addr(1);
-        console.log("alice: ", alice);
-        bob = vm.addr(2);
-        console.log("bob:   ", bob);
-        carol = vm.addr(3);
-        console.log("carol: ", carol);
-
-        vm.deal(alice, 100 ether);
-        vm.deal(bob, 100 ether);
-        vm.deal(carol, 100 ether);
 
         token0 = new MockERC20("Test Token 1", "TST1", 18);
         tokenCurrency0 = Currency.wrap(address(token0));
         token0.mint(address(this), 1_000_000 ether);
 
-        token0.transfer(alice, 2000 ether);
-        token0.transfer(bob, 2000 ether);
-        token0.transfer(carol, 2000 ether);
-
         token1 = new MockERC20("Test Token 2", "TST2", 18);
         tokenCurrency1 = Currency.wrap(address(token1));
         token1.mint(address(this), 1_000_000 ether);
 
-        token1.transfer(alice, 2000 ether);
-        token1.transfer(bob, 2000 ether);
-        token1.transfer(carol, 2000 ether);
-
 		rewardToken = new MockERC20("Reward Token", "REW", 18);
 		rewardCurrency = Currency.wrap(address(rewardToken));
-		rewardToken.mint(address(this), 1000 ether);
+		rewardToken.mint(address(this), 50_000_000 ether);
 
         uint160 flags = uint160(
             Hooks.AFTER_ADD_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG
@@ -98,30 +78,17 @@ contract TestIncentiveHook is Test, Deployers {
             flags,
             0,
             type(IncentiveHook).creationCode,
-            abi.encode(manager, "Points Token", "TEST_POINTS")
+            abi.encode(manager)
         );
 
-        hook = new IncentiveHook{salt: salt}(
-            manager,
-            "Points Token",
-            "TEST_POINTS"
-        );
+        hook = new IncentiveHook{salt: salt}(manager);
 
         token0.approve(address(swapRouter), type(uint256).max);
         token0.approve(address(modifyLiquidityRouter), type(uint256).max);
         token1.approve(address(swapRouter), type(uint256).max);
         token1.approve(address(modifyLiquidityRouter), type(uint256).max);
 
-        (key, ) = initPool(
-            ethCurrency,
-            tokenCurrency0,
-            hook,
-            3000,
-            Constants.SQRT_PRICE_1_1,
-            ZERO_BYTES
-        );
-
-        (poolKey2, ) = initPool(
+        (poolKey, poolId) = initPool(
             tokenCurrency0,
             tokenCurrency1,
             hook,
@@ -131,65 +98,16 @@ contract TestIncentiveHook is Test, Deployers {
         );
     }
 
-    function test_addLiquidityAndSwap() public {
-        modifyLiquidityRouter.modifyLiquidity{value: 0.003 ether}(
-            key,
-            IPoolManager.ModifyLiquidityParams({
-                tickLower: -60,
-                tickUpper: 60,
-                liquidityDelta: 1 ether,
-                salt: 0
-            }),
-			ZERO_BYTES
-        );
-
-        swapRouter.swap{value: 0.001 ether}(
-            key,
-            IPoolManager.SwapParams({
-                zeroForOne: true,
-                amountSpecified: -0.001 ether,
-                sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
-            }),
-            PoolSwapTest.TestSettings({
-                // withdrawTokens: true,
-                // settleUsingTransfer: true,
-                // currencyAlreadySent: false
-                settleUsingBurn: false,
-                takeClaims: false
-            }),
-			ZERO_BYTES
-        );
-    }
-
-    // TODO
-    // function test_updateRewards_wrongHookAddress() public {
-    //     PoolKey memory wrongHook = PoolKey({
-    //         currency0: key.currency0,
-    //         currency1: key.currency1,
-    //         fee: key.fee,
-    //         tickSpacing: key.tickSpacing,
-    //         hooks: IHooks(address(123))
-    //     });
-
-    //     try
-    //         hook.updateRewards(wrongHook.toId(), rewardToken, 100 ether, 500)
-    //     {
-    //         fail();
-    //     } catch Error(string memory reason) {
-    //         assertEq(reason, "Hook not attached to pool");
-    //     }
-    // }
-
     function test_updateRewards_shouldHaveUpdatedRecords() public {
         // increase allowance of rewardToken to hook
         rewardToken.approve(address(hook), type(uint256).max);
 
         // pick currency0, currency1, and rewardToken
         // update rewards to 100 ether for 500 blocks
-        hook.updateRewards(key.toId(), rewardToken, 100 ether, 500);
+        hook.updateRewards(poolId, rewardToken, 100 ether, 500);
 
         // check rewards record for this pool
-        (uint256 amount, uint256 period) = hook.getRewards(key.toId(), rewardToken);
+        (uint256 amount, uint256 period) = hook.getRewards(poolId, rewardToken);
         assertEq(amount, 100 ether);
         assertEq(period, 500);
     }
@@ -198,7 +116,7 @@ contract TestIncentiveHook is Test, Deployers {
         // increase allowance of rewardToken to hook
         rewardToken.approve(address(hook), type(uint256).max);
 
-        hook.updateRewards(key.toId(), rewardToken, 100 ether, 500);
+        hook.updateRewards(poolId, rewardToken, 100 ether, 500);
 
         // check this contract balance of rewardToken
         uint256 balance = rewardToken.balanceOf(address(this));
@@ -212,10 +130,10 @@ contract TestIncentiveHook is Test, Deployers {
     function test_updateRewards_decreaseAmount() public {
         rewardToken.approve(address(hook), type(uint256).max);
 
-        hook.updateRewards(key.toId(), rewardToken, 300 ether, 500);
-        hook.updateRewards(key.toId(), rewardToken, 200 ether, 500);
+        hook.updateRewards(poolId, rewardToken, 300 ether, 500);
+        hook.updateRewards(poolId, rewardToken, 200 ether, 500);
 
-        (uint256 amount, uint256 period) = hook.getRewards(key.toId(), rewardToken);
+        (uint256 amount, uint256 period) = hook.getRewards(poolId, rewardToken);
         assertEq(amount, 200 ether);
         assertEq(period, 500);
 
@@ -231,13 +149,13 @@ contract TestIncentiveHook is Test, Deployers {
     function test_updateRewards_withdrawAllRewards() public {
         rewardToken.approve(address(hook), type(uint256).max);
 
-        hook.updateRewards(key.toId(), rewardToken, 100 ether, 500);
+        hook.updateRewards(poolId, rewardToken, 100 ether, 500);
 
         // withdraw all rewards
-        hook.updateRewards(key.toId(), rewardToken, 0, 0);
+        hook.updateRewards(poolId, rewardToken, 0, 0);
 
         // check rewards record for this pair in both directions
-        (uint256 amount, uint256 period) = hook.getRewards(key.toId(), rewardToken);
+        (uint256 amount, uint256 period) = hook.getRewards(poolId, rewardToken);
         assertEq(amount, 0);
         assertEq(period, 0);
 
@@ -255,7 +173,7 @@ contract TestIncentiveHook is Test, Deployers {
     //////////////
 
     function log_feeGrowthGlobals(PoolKey memory _key) internal {
-        (, uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128, ) = mngr.pools(_key.toId());
+        (, uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128, ) = mngr.pools(poolId);
         console.log("feeGrowthGlobal0X128: %d", feeGrowthGlobal0X128);
         console.log("feeGrowthGlobal1X128: %d", feeGrowthGlobal1X128);
     }
@@ -271,7 +189,7 @@ contract TestIncentiveHook is Test, Deployers {
         vm.roll(10);
 
         // add liquidity
-        modifyLiquidityRouter.modifyLiquidity(poolKey2, IPoolManager.ModifyLiquidityParams({
+        modifyLiquidityRouter.modifyLiquidity(poolKey, IPoolManager.ModifyLiquidityParams({
             tickLower: -60,
             tickUpper: 60,
             liquidityDelta: 1 ether,
@@ -287,20 +205,21 @@ contract TestIncentiveHook is Test, Deployers {
         // few blocks passed after pool init
         vm.roll(10);
 
+        console.log("<<< add liquidity");
+
         // add liquidity
-        vm.prank(alice);
-        token0.approve(address(modifyLiquidityRouter), type(uint256).max);
-        token1.approve(address(modifyLiquidityRouter), type(uint256).max);
-        modifyLiquidityRouter.modifyLiquidity(poolKey2, IPoolManager.ModifyLiquidityParams({
+        modifyLiquidityRouter.modifyLiquidity(poolKey, IPoolManager.ModifyLiquidityParams({
             tickLower: -60,
             tickUpper: 60,
             liquidityDelta: 1 ether,
             salt: 0
         }), ZERO_BYTES);
 
+        console.log(">>>");
+
+        console.log("<<< swap");
         // swap generating fees
-        vm.prank(address(this));
-        swapRouter.swap(poolKey2, IPoolManager.SwapParams({
+        swapRouter.swap(poolKey, IPoolManager.SwapParams({
             zeroForOne: true,
             amountSpecified: -0.1 ether,
             sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
@@ -308,15 +227,22 @@ contract TestIncentiveHook is Test, Deployers {
             settleUsingBurn: false,
             takeClaims: false
         }), ZERO_BYTES);
+        console.log(">>>");
 
-        log_feeGrowthGlobals(poolKey2);
+        log_feeGrowthGlobals(poolKey);
 
+        console.log("<<< poke liquidity");
         // get fees accrued by user
-        vm.prank(alice);
-        modifyLiquidityRouter.modifyLiquidity(poolKey2, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether, 0), ZERO_BYTES, false, false);
-        (uint256 fees0, uint256 fees1) = hook.getFeesAccrued(poolKey2.toId(), alice, -60, 60, 0, 0, 0);
+        modifyLiquidityRouter.modifyLiquidity(poolKey, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether, 0), ZERO_BYTES, false, false);
+        console.log(">>>");
+
+        (uint256 fees0, uint256 fees1) = hook.getFeesAccrued(poolId, address(modifyLiquidityRouter), -60, 60, 0, 0, 0);
         console.log("fees0: %d", fees0);
         console.log("fees1: %d", fees1);
+
+        (uint256 feesGlobal0, uint256 feesGlobal1) = hook.getFeesAccruedGlobal(poolId, 0, 0);
+        console.log("feesGlobal0: %d", feesGlobal0);
+        console.log("feesGlobal1: %d", feesGlobal1);
     }
 
     function test_feesAccruedUser_1Position_OneWithdraw_NoPositionChanges() public {}

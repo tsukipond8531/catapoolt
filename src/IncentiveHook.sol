@@ -27,9 +27,7 @@ contract IncentiveHook is BaseHook {
     using BalanceDeltaLibrary for BalanceDelta;
 
     constructor(
-        IPoolManager _manager,
-        string memory _name,
-        string memory _symbol
+        IPoolManager _manager
     ) BaseHook(_manager) {}
 
     function getHookPermissions()
@@ -211,12 +209,17 @@ contract IncentiveHook is BaseHook {
         uint256 feeGrowthInside0X128LastWithdrawal = 0;
         // TODO
         uint256 feeGrowthInside1X128LastWithdrawal = 0;
+        // TODO 
+        uint256 feesGrowthGlobal0X128LastWithdrawal = 0;
+        // TODO
+        uint256 feesGrowthGlobal1X128LastWithdrawal = 0;
 
         // fees accrued by the user since the last reward withdrawal
         (uint256 fees0, uint256 fees1) = getFeesAccrued(poolId, owner, tickLower, tickUpper, salt, feeGrowthInside0X128LastWithdrawal, feeGrowthInside1X128LastWithdrawal);
 
         // fees accrued by all the users since the last reward withdrawal
-        uint256 feesAccruedTotal = 1;
+        (uint256 feesGlobal0, uint256 feesGlobal1) = getFeesAccruedGlobal(poolId, feesGrowthGlobal0X128LastWithdrawal, feesGrowthGlobal1X128LastWithdrawal);
+
 
         // amount of total rewards since the last withdrawal of the user (nr of blocks * reward per block)
         uint256 blocksPassed = 1;
@@ -228,7 +231,7 @@ contract IncentiveHook is BaseHook {
 
         // update variables
         // feesAccruedUser = 1;
-        feesAccruedTotal = 1;
+        // feesAccruedTotal = 1;
         blocksPassed = 1;
     }
 
@@ -246,6 +249,23 @@ contract IncentiveHook is BaseHook {
         unchecked {
             fees0 = FullMath.mulDiv(position.feeGrowthInside0LastX128 - feeGrowthInside0X128LastWithdrawal, position.liquidity, FixedPoint128.Q128);
             fees1 = FullMath.mulDiv(position.feeGrowthInside1LastX128 - feeGrowthInside1X128LastWithdrawal, position.liquidity, FixedPoint128.Q128);
+        }
+    }
+
+    function getFeesAccruedGlobal(
+        PoolId poolId,
+        uint256 feesGrowthGlobal0X128LastWithdrawal,
+        uint256 feesGrowthGlobal1X128LastWithdrawal
+    ) public view returns (uint256 feesGlobal0, uint256 feesGlobal1) {
+        (uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128) = poolManager.getFeeGrowthGlobals(poolId);
+        console.log("Hook: feeGrowthGlobal0X128: %d", feeGrowthGlobal0X128);
+        console.log("Hook: feeGrowthGlobal1X128: %d", feeGrowthGlobal1X128);
+        uint128 liquidity = poolManager.getLiquidity(poolId);
+        console.log("Hook: liquidity: %d", liquidity);
+
+        unchecked {
+            feesGlobal0 = FullMath.mulDiv(feeGrowthGlobal0X128 - feesGrowthGlobal0X128LastWithdrawal, liquidity, FixedPoint128.Q128);
+            feesGlobal1 = FullMath.mulDiv(feeGrowthGlobal1X128 - feesGrowthGlobal1X128LastWithdrawal, liquidity, FixedPoint128.Q128);
         }
     }
 }
