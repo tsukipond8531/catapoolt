@@ -163,8 +163,8 @@ contract IncentiveHook is BaseHook {
     mapping(address => PoolId[]) public userPools;
 
     struct Values {
-        uint256 amount;
-        uint256 period;
+        uint256 amountPerBlock;
+        uint256 nrOfBlocks;
     }
 
     struct WithdrawalSnapshot {
@@ -178,13 +178,14 @@ contract IncentiveHook is BaseHook {
     function updateRewards(
         PoolId poolId,
         ERC20 rewardToken,
-        uint256 newAmount,
-        uint256 period
+        uint256 newAmountPerBlock,
+        uint256 newNrOfBlocks
     ) external {
         // TODO check that the pool has this hook attached
         // require(address(poolKeys[poolId].hooks) == address(this), "Hook not attached to pool");
         
-        uint256 currentBalance = rewards[poolId][rewardToken].amount;
+        uint256 currentBalance = rewards[poolId][rewardToken].amountPerBlock * rewards[poolId][rewardToken].nrOfBlocks;
+        uint256 newAmount = newAmountPerBlock * newNrOfBlocks;
 
         if (currentBalance < newAmount) {
             uint256 needed = newAmount - currentBalance;
@@ -195,14 +196,14 @@ contract IncentiveHook is BaseHook {
             rewardToken.transfer(msg.sender, excess);
         }
 
-        rewards[poolId][rewardToken] = Values(newAmount, period);
+        rewards[poolId][rewardToken] = Values(newAmountPerBlock, newNrOfBlocks);
     }
 
     function getRewards(
         PoolId poolId,
         ERC20 rewardToken
     ) external view returns (uint256, uint256) {
-        return (rewards[poolId][rewardToken].amount, rewards[poolId][rewardToken].period);
+        return (rewards[poolId][rewardToken].amountPerBlock, rewards[poolId][rewardToken].nrOfBlocks);
     }
 
     function toPositionId(PoolId poolId, address owner, int24 tickLower, int24 tickUpper, bytes32 salt) internal pure returns (bytes32) {
@@ -229,7 +230,7 @@ contract IncentiveHook is BaseHook {
 
 
         // amount of total rewards since the last withdrawal of the user (nr of blocks * reward per block)
-        uint256 blocksPassed = 1;
+        uint256 blocksPassed = block.number - lastWithdrawal.blockNumber;
         uint256 rewardPerBlock = 1 ether;
         uint256 totalRewards = blocksPassed * rewardPerBlock;
 

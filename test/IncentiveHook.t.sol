@@ -104,49 +104,55 @@ contract TestIncentiveHook is Test, Deployers {
 
         // pick currency0, currency1, and rewardToken
         // update rewards to 100 ether for 500 blocks
-        hook.updateRewards(poolId, rewardToken, 100 ether, 500);
+        hook.updateRewards(poolId, rewardToken, 0.01 ether, 500);
 
         // check rewards record for this pool
         (uint256 amount, uint256 period) = hook.getRewards(poolId, rewardToken);
-        assertEq(amount, 100 ether);
+        assertEq(amount, 0.01 ether);
         assertEq(period, 500);
     }
 
     function test_updateRewards_shouldHaveUpdatedBalances() public {
+        uint256 initialBalance = rewardToken.balanceOf(address(this));
+
         // increase allowance of rewardToken to hook
         rewardToken.approve(address(hook), type(uint256).max);
 
-        hook.updateRewards(poolId, rewardToken, 100 ether, 500);
+        hook.updateRewards(poolId, rewardToken, 0.01 ether, 500);
 
         // check this contract balance of rewardToken
         uint256 balance = rewardToken.balanceOf(address(this));
-        assertEq(balance, 900 ether);
+        assertEq(balance, initialBalance - 5 ether);
 
         // check hook's balance of rewardToken
         uint256 hookBalance = rewardToken.balanceOf(address(hook));
-        assertEq(hookBalance, 100 ether);
+        assertEq(hookBalance, 5 ether);
     }
 
-    function test_updateRewards_decreaseAmount() public {
+    function test_updateRewards_decreaseAmountPerBlock() public {
+        uint256 initialBalance = rewardToken.balanceOf(address(this));
+
         rewardToken.approve(address(hook), type(uint256).max);
 
-        hook.updateRewards(poolId, rewardToken, 300 ether, 500);
-        hook.updateRewards(poolId, rewardToken, 200 ether, 500);
+        hook.updateRewards(poolId, rewardToken, 0.003 ether, 1000);
+        hook.updateRewards(poolId, rewardToken, 0.002 ether, 1000);
 
-        (uint256 amount, uint256 period) = hook.getRewards(poolId, rewardToken);
-        assertEq(amount, 200 ether);
-        assertEq(period, 500);
+        (uint256 amountPerBlock, uint256 nrOfBlocks) = hook.getRewards(poolId, rewardToken);
+        assertEq(amountPerBlock, 0.002 ether);
+        assertEq(nrOfBlocks, 1000);
 
         // check caller's balance of rewardToken
         uint256 balance = rewardToken.balanceOf(address(this));
-        assertEq(balance, 800 ether);
+        assertEq(balance, initialBalance - 2 ether);
 
         // check hook's balance of rewardToken
         uint256 hookBalance = rewardToken.balanceOf(address(hook));
-        assertEq(hookBalance, 200 ether);
+        assertEq(hookBalance, 2 ether);
     }
 
     function test_updateRewards_withdrawAllRewards() public {
+        uint256 initialBalance = rewardToken.balanceOf(address(this));
+
         rewardToken.approve(address(hook), type(uint256).max);
 
         hook.updateRewards(poolId, rewardToken, 100 ether, 500);
@@ -161,7 +167,7 @@ contract TestIncentiveHook is Test, Deployers {
 
         // check caller's balance of rewardToken
         uint256 balance = rewardToken.balanceOf(address(this));
-        assertEq(balance, 1000 ether);
+        assertEq(balance, initialBalance);
 
         // check hook's balance of rewardToken
         uint256 hookBalance = rewardToken.balanceOf(address(hook));
