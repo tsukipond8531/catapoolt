@@ -246,9 +246,12 @@ contract IncentiveHook is BaseHook {
         uint256 rewardPerBlock = rewards[params.poolId][rewardToken].amountPerBlock;
         uint256 totalRewards = blocksPassed * rewardPerBlock;
 
+        // Rewards are split equally between the two swap directions
+        uint256 totalRewardsPerDirection = totalRewards / 2;
+
         // Calculate the amount of rewards the user can claim
-        rewards0 = (feesGlobal0 == 0) ? 0 : FullMath.mulDiv(fees0, totalRewards, feesGlobal0);
-        rewards1 = (feesGlobal1 == 0) ? 0 : FullMath.mulDiv(fees1, totalRewards, feesGlobal1);
+        rewards0 = (feesGlobal0 == 0) ? 0 : FullMath.mulDiv(fees0, totalRewardsPerDirection, feesGlobal0);
+        rewards1 = (feesGlobal1 == 0) ? 0 : FullMath.mulDiv(fees1, totalRewardsPerDirection, feesGlobal1);
     }
 
     function getFeesAccrued(

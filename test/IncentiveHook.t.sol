@@ -255,6 +255,9 @@ contract TestIncentiveHook is Test, Deployers {
         (uint256 rewards0, uint256 rewards1) = hook.calculateRewards(params, rewardToken);
         console.log("rewards0: %d", rewards0);
         console.log("rewards1: %d", rewards1);
+
+        assertEq(1 ether / 200, rewards0);
+        assertEq(1 ether / 200, rewards1);
     }
 
     function test_feesAccruedUser_1Position_OneWithdraw_NoPositionChanges() public {}
