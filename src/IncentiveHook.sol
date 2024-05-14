@@ -162,6 +162,8 @@ contract IncentiveHook is BaseHook {
 
     mapping(address => PoolId[]) public userPools;
 
+    mapping(bytes32 => WithdrawalSnapshot) public lastWithdrawals;
+
     struct Values {
         uint256 amountPerBlock;
         uint256 nrOfBlocks;
@@ -210,8 +212,6 @@ contract IncentiveHook is BaseHook {
         return keccak256(abi.encodePacked(poolId, owner, tickLower, tickUpper, salt));
     }
 
-    mapping(bytes32 => WithdrawalSnapshot) public lastWithdrawals;
-
     function calculateRewards(
         PoolId poolId,
         address owner,
@@ -219,7 +219,7 @@ contract IncentiveHook is BaseHook {
         int24 tickUpper,
         bytes32 salt,
         ERC20 rewardToken
-    ) external view returns (uint256 rewards0, uint256 rewards1) {
+    ) public view returns (uint256 rewards0, uint256 rewards1) {
         WithdrawalSnapshot memory lastWithdrawal = lastWithdrawals[toPositionId(poolId, owner, tickLower, tickUpper, salt)];
         
         // fees accrued by the user since the last reward withdrawal
@@ -231,17 +231,12 @@ contract IncentiveHook is BaseHook {
 
         // amount of total rewards since the last withdrawal of the user (nr of blocks * reward per block)
         uint256 blocksPassed = block.number - lastWithdrawal.blockNumber;
-        uint256 rewardPerBlock = 1 ether;
+        uint256 rewardPerBlock = rewards[poolId][rewardToken].amountPerBlock;
         uint256 totalRewards = blocksPassed * rewardPerBlock;
 
         // amount of rewards the user can claim
         rewards0 = (feesGlobal0 == 0) ? 0 : FullMath.mulDiv(fees0, totalRewards, feesGlobal0);
         rewards1 = (feesGlobal1 == 0) ? 0 : FullMath.mulDiv(fees1, totalRewards, feesGlobal1);
-
-        // update variables
-        // feesAccruedUser = 1;
-        // feesAccruedTotal = 1;
-        blocksPassed = 1;
     }
 
     function getFeesAccrued(
