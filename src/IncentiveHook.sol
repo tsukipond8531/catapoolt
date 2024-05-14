@@ -263,7 +263,7 @@ contract IncentiveHook is BaseHook {
         uint256 feeGrowthInside0X128LastWithdrawal,
         uint256 feeGrowthInside1X128LastWithdrawal
     ) public view returns (uint256 fees0, uint256 fees1) {
-        Position.Info memory position = poolManager.getPosition(poolId, owner, tickLower, tickUpper, 0);
+        Position.Info memory position = poolManager.getPosition(poolId, owner, tickLower, tickUpper, salt);
 
         unchecked {
             fees0 = position.feeGrowthInside0LastX128 - feeGrowthInside0X128LastWithdrawal;
@@ -282,5 +282,44 @@ contract IncentiveHook is BaseHook {
             feesGlobal0 = feeGrowthGlobal0X128 - feesGrowthGlobal0X128LastWithdrawal;
             feesGlobal1 = feeGrowthGlobal1X128 - feesGrowthGlobal1X128LastWithdrawal;
         }
+    }
+
+    function withdrawRewards(
+        PositionParams memory params,
+        ERC20 rewardToken
+    ) external returns (uint256 rewards0, uint256 rewards1) {
+        // TODO Ensure the caller is the owner of the position
+        // require(params.owner == msg.sender, "Caller is not the owner");
+
+        // Calculate rewards
+        (rewards0, rewards1) = calculateRewards(params, rewardToken);
+
+        // Fetch the position information to get fee growth inside values
+        Position.Info memory position = poolManager.getPosition(
+            params.poolId,
+            params.owner,
+            params.tickLower,
+            params.tickUpper,
+            params.salt
+        );
+
+        // Fetch the global fee growth values
+        (uint256 feeGrowthGlobal0X128, uint256 feeGrowthGlobal1X128) = poolManager.getFeeGrowthGlobals(params.poolId);
+
+        // Update the last withdrawal snapshot
+        bytes32 positionId = toPositionId(params.poolId, params.owner, params.tickLower, params.tickUpper, params.salt);
+        lastWithdrawals[positionId] = WithdrawalSnapshot({
+            feeGrowthInside0X128: position.feeGrowthInside0LastX128,
+            feeGrowthInside1X128: position.feeGrowthInside1LastX128,
+            feesGrowthGlobal0X128: feeGrowthGlobal0X128,
+            feesGrowthGlobal1X128: feeGrowthGlobal1X128,
+            blockNumber: block.number
+        });
+
+        // Transfer the rewards to the user
+        uint256 totalRewards = rewards0 + rewards1;
+        require(rewardToken.balanceOf(address(this)) >= totalRewards, "Insufficient contract balance");
+
+        rewardToken.transfer(msg.sender, totalRewards);
     }
 }

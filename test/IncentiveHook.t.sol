@@ -191,7 +191,11 @@ contract TestIncentiveHook is Test, Deployers {
     function test_feesAccruedUser_NoPosition() public {}
 
     function test_feesAccruedUser_1Position_NoWithdraws_NoPositionChanges_NoFees() public {
-        // few blocks passed after pool init
+        // Add some rewards
+        rewardToken.approve(address(hook), type(uint256).max);
+        hook.updateRewards(poolId, rewardToken, 0.001 ether, 1000);
+
+        // few blocks have passed since pool init
         vm.roll(10);
 
         // add liquidity
@@ -202,9 +206,20 @@ contract TestIncentiveHook is Test, Deployers {
             salt: 0
         }), ZERO_BYTES);
 
-        // get fees accrued by user
-        // uint256 feesAccruedUser = hook.getFeesAccrued(poolKey2.toId(), address(this), -60, 60);
-        // assertEq(feesAccruedUser, 0);
+        // should generate rewards anyway
+        IncentiveHook.PositionParams memory params = IncentiveHook.PositionParams({
+            poolId: poolId,
+            owner: address(modifyLiquidityRouter),
+            tickLower: -60,
+            tickUpper: 60,
+            salt: 0
+        });
+
+        (uint256 rewards0, uint256 rewards1) = hook.calculateRewards(params, rewardToken);
+        console.log("rewards0: %d", rewards0);
+        console.log("rewards1: %d", rewards1);
+        assertEq(1 ether / 200, rewards0);
+        assertEq(1 ether / 200, rewards1);
     }
 
     function test_feesAccruedUser_1Position_NoWithdraws_NoPositionChanges_SomeFees() public {
@@ -212,7 +227,7 @@ contract TestIncentiveHook is Test, Deployers {
         rewardToken.approve(address(hook), type(uint256).max);
         hook.updateRewards(poolId, rewardToken, 0.001 ether, 1000);
 
-        // few blocks passed after pool init
+        // few blocks have passed since pool init
         vm.roll(10);
 
         // add liquidity
@@ -266,4 +281,52 @@ contract TestIncentiveHook is Test, Deployers {
 
     function test_feesAccruedUser_1Position_OneWithdraw_OnePositionChange() public {}
 
+    function test_withdrawRewards() public {
+        // Add some rewards
+        rewardToken.approve(address(hook), type(uint256).max);
+        hook.updateRewards(poolId, rewardToken, 0.001 ether, 1000);
+
+        // few blocks have passed since pool init
+        vm.roll(10);
+
+        // add liquidity
+        modifyLiquidityRouter.modifyLiquidity(poolKey, IPoolManager.ModifyLiquidityParams({
+            tickLower: -60,
+            tickUpper: 60,
+            liquidityDelta: 1 ether,
+            salt: 0
+        }), ZERO_BYTES);
+
+        // swap generating fees
+        swapRouter.swap(poolKey, IPoolManager.SwapParams({
+            zeroForOne: true,
+            amountSpecified: -0.1 ether,
+            sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+        }), PoolSwapTest.TestSettings({
+            settleUsingBurn: false,
+            takeClaims: false
+        }), ZERO_BYTES);
+
+        // get fees accrued by user
+        modifyLiquidityRouter.modifyLiquidity(poolKey, IPoolManager.ModifyLiquidityParams(-60, 60, 0 ether, 0), ZERO_BYTES, false, false);
+
+        IncentiveHook.PositionParams memory params = IncentiveHook.PositionParams({
+            poolId: poolId,
+            owner: address(modifyLiquidityRouter),
+            tickLower: -60,
+            tickUpper: 60,
+            salt: 0
+        });
+
+        uint256 initialBalance = rewardToken.balanceOf(address(this));
+        uint256 hookInitialBalance = rewardToken.balanceOf(address(hook));
+
+        (uint256 rewards0, uint256 rewards1) = hook.withdrawRewards(params, rewardToken);
+
+        uint256 postWithdrawBalance = rewardToken.balanceOf(address(this));
+        uint256 hookPostWithdrawBalance = rewardToken.balanceOf(address(hook));
+
+        assertEq(rewards0 + rewards1, postWithdrawBalance - initialBalance);
+        assertEq(rewards0 + rewards1, hookInitialBalance - hookPostWithdrawBalance);
+    }
 }
