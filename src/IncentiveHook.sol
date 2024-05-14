@@ -212,29 +212,41 @@ contract IncentiveHook is BaseHook {
         return keccak256(abi.encodePacked(poolId, owner, tickLower, tickUpper, salt));
     }
 
+    struct PositionParams {
+        PoolId poolId;
+        address owner;
+        int24 tickLower;
+        int24 tickUpper;
+        bytes32 salt;
+    }
+
     function calculateRewards(
-        PoolId poolId,
-        address owner,
-        int24 tickLower, 
-        int24 tickUpper,
-        bytes32 salt,
+        PositionParams memory params,
         ERC20 rewardToken
     ) public view returns (uint256 rewards0, uint256 rewards1) {
-        WithdrawalSnapshot memory lastWithdrawal = lastWithdrawals[toPositionId(poolId, owner, tickLower, tickUpper, salt)];
-        
-        // fees accrued by the user since the last reward withdrawal
-        (uint256 fees0, uint256 fees1) = getFeesAccrued(poolId, owner, tickLower, tickUpper, salt, lastWithdrawal.feeGrowthInside0X128, lastWithdrawal.feeGrowthInside1X128);
+        // Create position ID using the struct
+        bytes32 positionId = toPositionId(params.poolId, params.owner, params.tickLower, params.tickUpper, params.salt);
 
-        // fees accrued by all the users since the last reward withdrawal
-        (uint256 feesGlobal0, uint256 feesGlobal1) = getFeesAccruedGlobal(poolId, lastWithdrawal.feesGrowthGlobal0X128, lastWithdrawal.feesGrowthGlobal1X128);
+        // Access withdrawal data
+        WithdrawalSnapshot memory lastWithdrawal = lastWithdrawals[positionId];
 
+        // Calculate fees accrued by the user since the last reward withdrawal
+        (uint256 fees0, uint256 fees1) = getFeesAccrued(
+            params.poolId, params.owner, params.tickLower, params.tickUpper, params.salt,
+            lastWithdrawal.feeGrowthInside0X128, lastWithdrawal.feeGrowthInside1X128
+        );
 
-        // amount of total rewards since the last withdrawal of the user (nr of blocks * reward per block)
+        // Calculate fees accrued by all the users since the last reward withdrawal
+        (uint256 feesGlobal0, uint256 feesGlobal1) = getFeesAccruedGlobal(
+            params.poolId, lastWithdrawal.feesGrowthGlobal0X128, lastWithdrawal.feesGrowthGlobal1X128
+        );
+
+        // Calculate total rewards since the last withdrawal of the user
         uint256 blocksPassed = block.number - lastWithdrawal.blockNumber;
-        uint256 rewardPerBlock = rewards[poolId][rewardToken].amountPerBlock;
+        uint256 rewardPerBlock = rewards[params.poolId][rewardToken].amountPerBlock;
         uint256 totalRewards = blocksPassed * rewardPerBlock;
 
-        // amount of rewards the user can claim
+        // Calculate the amount of rewards the user can claim
         rewards0 = (feesGlobal0 == 0) ? 0 : FullMath.mulDiv(fees0, totalRewards, feesGlobal0);
         rewards1 = (feesGlobal1 == 0) ? 0 : FullMath.mulDiv(fees1, totalRewards, feesGlobal1);
     }

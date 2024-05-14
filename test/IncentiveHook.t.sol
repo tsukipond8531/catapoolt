@@ -208,6 +208,10 @@ contract TestIncentiveHook is Test, Deployers {
     }
 
     function test_feesAccruedUser_1Position_NoWithdraws_NoPositionChanges_SomeFees() public {
+        // Add some rewards
+        rewardToken.approve(address(hook), type(uint256).max);
+        hook.updateRewards(poolId, rewardToken, 0.001 ether, 1000);
+
         // few blocks passed after pool init
         vm.roll(10);
 
@@ -240,7 +244,17 @@ contract TestIncentiveHook is Test, Deployers {
         console.log("feesGlobal0: %d", feesGlobal0);
         console.log("feesGlobal1: %d", feesGlobal1);
 
-        hook.calculateRewards(poolId, address(modifyLiquidityRouter), -60, 60, 0, rewardToken);
+        IncentiveHook.PositionParams memory params = IncentiveHook.PositionParams({
+            poolId: poolId,
+            owner: address(modifyLiquidityRouter),
+            tickLower: -60,
+            tickUpper: 60,
+            salt: 0
+        });
+
+        (uint256 rewards0, uint256 rewards1) = hook.calculateRewards(params, rewardToken);
+        console.log("rewards0: %d", rewards0);
+        console.log("rewards1: %d", rewards1);
     }
 
     function test_feesAccruedUser_1Position_OneWithdraw_NoPositionChanges() public {}
