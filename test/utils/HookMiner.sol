@@ -5,10 +5,10 @@ pragma solidity ^0.8.19;
 /// @dev This library is intended for `forge test` environments. There may be gotchas when using salts in `forge script` or `forge create`
 library HookMiner {
     // mask to slice out the top 10 bits of the address
-    uint160 constant FLAG_MASK = 0x3FF << 150;
+    uint160 constant FLAG_MASK = 0x3FFF << 146;
 
     // Maximum number of iterations to find a salt, avoid infinite loops
-    uint256 constant MAX_LOOP = 10_000;
+    uint256 constant MAX_LOOP = 100_000;
 
     /// @notice Find a salt that produces a hook address with the desired `flags`
     /// @param deployer The address that will deploy the hook.
@@ -27,7 +27,7 @@ library HookMiner {
         uint256 seed,
         bytes memory creationCode,
         bytes memory constructorArgs
-    ) external pure returns (address, bytes32) {
+    ) external view returns (address, bytes32) {
         address hookAddress;
         bytes memory creationCodeWithArgs = abi.encodePacked(
             creationCode,
